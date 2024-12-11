@@ -1,0 +1,142 @@
+import 'dart:async';
+import 'package:flutter/material.dart';
+import 'package:flutter_tts/flutter_tts.dart';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
+import 'package:flutter/services.dart';
+
+void main() {
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Flutter RFID Reader',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.green),
+        useMaterial3: true,
+      ),
+      home: const MyHomePage(title: 'Flutter RFID Reader'),
+    );
+  }
+}
+
+class MyHomePage extends StatefulWidget {
+  const MyHomePage({super.key, required this.title});
+
+  final String title;
+
+  @override
+  State<MyHomePage> createState() => _MyHomePageState();
+}
+
+class _MyHomePageState extends State<MyHomePage> {
+  final TextEditingController _rfidController = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+  final FlutterTts _flutterTts = FlutterTts();
+  String _rfidData = "";
+  Timer? _inputTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      FocusScope.of(context).requestFocus(_focusNode);
+    });
+  }
+
+  Future<void> _fetchUserData(String rfidCode) async {
+    try {
+      final response = await http.post(
+        Uri.parse('http://localhost:3000/get-user'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'rfidCode': rfidCode}),
+      );
+
+      if (response.statusCode == 200) {
+        final userData = jsonDecode(response.body);
+        _showRfidDialog(userData['name'], userData['image']);
+        await _flutterTts.setLanguage('fr-FR');
+        await _flutterTts.speak("Bienvenue ${userData['name']}");
+
+        // Fermer l'application après 3 secondes
+        Future.delayed(const Duration(seconds: 3), () {
+          SystemNavigator.pop();
+        });
+      } else {
+        _showRfidDialog('Utilisateur non trouvé', '');
+      }
+    } catch (e) {
+      print("Erreur : $e");
+    }
+  }
+
+  void _showRfidDialog(String name, String imageUrl) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text(name),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (imageUrl.isNotEmpty)
+                Image.network(imageUrl, height: 100, width: 100),
+              Text(name),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                FocusScope.of(context).requestFocus(_focusNode);
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _onRfidInput(String value) {
+    _inputTimer?.cancel();
+    if (value.isNotEmpty) {
+      _inputTimer = Timer(const Duration(seconds: 2), () {
+        _fetchUserData(value);
+        _rfidController.clear();
+        setState(() {
+          _rfidData = "";
+        });
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.title)),
+      body: Center(
+        child: TextField(
+          controller: _rfidController,
+          focusNode: _focusNode,
+          decoration: const InputDecoration(hintText: 'Scan RFID'),
+          onChanged: _onRfidInput,
+        ),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _rfidController.dispose();
+    _focusNode.dispose();
+    _inputTimer?.cancel();
+    _flutterTts.stop();
+    super.dispose();
+  }
+}

@@ -1,0 +1,312 @@
+import 'dart:async'; // Pour utiliser le Timer
+import 'dart:convert'; // Pour jsonEncode et jsonDecode
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // Pour gérer TextInputFormatter
+import 'package:flutter_tts/flutter_tts.dart'; // Pour la synthèse vocale
+import 'package:http/http.dart' as http; // Pour les appels HTTP
+import 'dart:ui'; // Pour ImageFilter.blur
+
+void main() {
+  runApp(const MyApp());
+}
+
+class MyApp extends StatelessWidget {
+  const MyApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Africasystems RFID Reader',
+      theme: ThemeData(
+        colorScheme: ColorScheme.fromSeed(seedColor: Color(0xFF006400)),
+        useMaterial3: true,
+      ),
+      home: const MyHomePage(title: 'Africasystems RFID Reader'),
+    );
+  }
+}
+
+class MyHomePage extends StatefulWidget {
+  const MyHomePage({super.key, required this.title});
+
+  final String title;
+
+  @override
+  State<MyHomePage> createState() => _MyHomePageState();
+}
+
+class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
+  final TextEditingController _rfidController = TextEditingController();
+  final FocusNode _focusNode = FocusNode();
+  String _rfidData = "";
+  Timer? _inputTimer;
+
+  final FlutterTts _flutterTts = FlutterTts();
+  bool _isVoiceEnabled = true;
+  bool _isFrench = true;
+  bool _isManualInputVisible = false; // Contrôle la visibilité du champ de saisie
+  late AnimationController _scaleController;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ensureFocus();
+    });
+    _speakGreeting();
+
+    // Animation pour le logo
+    _scaleController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true); // Répète l'animation
+
+    // Animation de mise à l'échelle
+    _scaleController.addListener(() {
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _rfidController.dispose();
+    _focusNode.dispose();
+    _inputTimer?.cancel();
+    _scaleController.dispose(); // Dispose de l'animation
+    super.dispose();
+  }
+
+  void _ensureFocus() {
+    if (!_focusNode.hasFocus) {
+      FocusScope.of(context).requestFocus(_focusNode);
+    }
+  }
+
+  void _speakGreeting() async {
+    String language = _isFrench ? "fr-FR" : "en-US";
+    await _flutterTts.setLanguage(language);
+    await _flutterTts.speak("Bonjour Bernoulli, comment tu vas ?");
+  }
+
+  void _onRfidInput(String value) {
+    _inputTimer?.cancel();
+
+    if (value.isNotEmpty) {
+      setState(() {
+        _rfidData = value;
+      });
+
+      _inputTimer = Timer(const Duration(milliseconds: 2000), () {
+        _onCompleteRfidInput();
+      });
+    }
+  }
+
+  void _onCompleteRfidInput() async {
+    if (_rfidData.isNotEmpty) {
+      try {
+        // Appel API
+        final response = await http.post(
+          Uri.parse('http://localhost:3000/get-user'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'rfidCode': _rfidData}),
+        );
+
+        if (response.statusCode == 200) {
+          // Parse des données utilisateur
+          final userData = jsonDecode(response.body);
+          _showRfidDialog(userData['name'], userData['image']);
+          if (_isVoiceEnabled) {
+            _speakRfidCode(userData['name']);
+          }
+        } else if (response.statusCode == 404) {
+          // Utilisateur non trouvé
+          _showRfidDialog('Utilisateur inconnu', null);
+          if (_isVoiceEnabled) {
+            _speakRfidCode('Utilisateur inconnu');
+          }
+        } else {
+          // Erreur serveur
+          _showRfidDialog('Erreur serveur', null);
+        }
+      } catch (e) {
+        // Gestion des erreurs réseau
+        _showRfidDialog('Erreur réseau', null);
+      }
+
+      // Réinitialiser les données
+      _rfidController.clear();
+      setState(() {
+        _rfidData = "";
+      });
+      _ensureFocus();
+    }
+  }
+
+  void _speakRfidCode(String rfidCode) async {
+    String language = _isFrench ? "fr-FR" : "en-US";
+    await _flutterTts.setLanguage(language);
+    await _flutterTts.speak("Le code RFID scanné est $rfidCode");
+  }
+
+  void _showRfidDialog(String name, String? imageUrl) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        Timer(const Duration(seconds: 5), () {
+          if (Navigator.of(context).canPop()) {
+            Navigator.of(context).pop();
+            _ensureFocus();
+          }
+        });
+
+        return AlertDialog(
+          title: const Text('Informations Utilisateur'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (imageUrl != null)
+                Image.network(
+                  imageUrl,
+                  width: 100,
+                  height: 100,
+                  errorBuilder: (context, error, stackTrace) =>
+                      const Icon(Icons.error),
+                ),
+              const SizedBox(height: 10),
+              Text(
+                'Nom : $name',
+                style: const TextStyle(fontSize: 16),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(context).pop();
+                _ensureFocus();
+              },
+              child: const Text('OK'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    double margin = MediaQuery.of(context).size.width * 0;
+
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
+        title: Text(widget.title),
+      ),
+      body: Stack(
+        children: [
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 10.0, sigmaY: 10.0),
+              child: Container(
+                color: Colors.white,
+              ),
+            ),
+          ),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: margin, vertical: margin),
+            child: Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: <Widget>[
+                  // Animation de l'image en haut de l'écran
+                  AnimatedBuilder(
+                    animation: _scaleController,
+                    builder: (context, child) {
+                      return Transform.scale(
+                        scale: 1 + _scaleController.value * 0.1, // Grossissement et rétrécissement
+                        child: child,
+                      );
+                    },
+                    child: Image.asset(
+                      'assets/images/logo.png',
+                      width: 150,
+                      height: 150,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Scannez une carte RFID pour afficher les informations complètes.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.green),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text('Activer l\'IA :',
+                          style: TextStyle(color: Colors.green)),
+                      Switch(
+                        value: _isVoiceEnabled,
+                        onChanged: (value) {
+                          setState(() {
+                            _isVoiceEnabled = value;
+                          });
+                          _ensureFocus();
+                        },
+                      ),
+                    ],
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text('Langue (Français/Anglais) :',
+                          style: TextStyle(color: Colors.green)),
+                      Switch(
+                        value: _isFrench,
+                        onChanged: (value) {
+                          setState(() {
+                            _isFrench = value;
+                          });
+                          _ensureFocus();
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  // Bouton pour entrer un code RFID manuellement
+                  ElevatedButton(
+                    onPressed: () {
+                      setState(() {
+                        _isManualInputVisible = !_isManualInputVisible;
+                      });
+                    },
+                    child: const Text('Entrer manuellement un code RFID'),
+                  ),
+                  const SizedBox(height: 20),
+                  // Afficher le champ de saisie si l'option est activée
+                  if (_isManualInputVisible)
+                    TextField(
+                      controller: _rfidController,
+                      focusNode: _focusNode,
+                      keyboardType: TextInputType.text,
+                      onChanged: _onRfidInput,
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                            RegExp(r'[A-Za-z0-9]')),
+                      ],
+                      decoration: const InputDecoration(
+                        labelText: 'Code RFID',
+                        hintText: 'Entrez un code RFID',
+                        border: OutlineInputBorder(),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
