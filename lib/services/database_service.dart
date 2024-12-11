@@ -46,13 +46,31 @@ class DatabaseService {
             CREATE TABLE IF NOT EXISTS attendance (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             id_user INTEGER NOT NULL,
+            make_attendance_id INTEGER,
             is_checkin BOOLEAN DEFAULT 1,
             checkin_time DATETIME,
             checkout_time DATETIME,
-            created_at DATETIME,
+            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             isLocal BOOLEAN DEFAULT 1,
-            FOREIGN KEY (id_user) REFERENCES africasystem(id) ON DELETE CASCADE ON UPDATE CASCADE
+            longitude TEXT,
+            latitude TEXT,
+            UNIQUE (id_user, checkin_time),
+            FOREIGN KEY (id_user) REFERENCES africasystem(id) ON DELETE CASCADE ON UPDATE CASCADE)
     ''');
+
+    await db.execute('''
+            CREATE TABLE IF NOT EXISTS attendance_log (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                nom TEXT,
+                datetime DATETIME DEFAULT CURRENT_TIMESTAMP,
+                activity_name TEXT,
+                rfid_code TEXT NOT NULL,
+                status TEXT,
+                message TEXT
+            );
+    ''');
+    
   }
 
 }

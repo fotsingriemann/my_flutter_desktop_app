@@ -52,10 +52,6 @@ Future<void> _handleRfidInput(String rfidCode) async {
     final user = await _rfidService.getUserData(rfidCode);
     print("Get the data of the user");
 
-    // if (_isVoiceEnabled) {
-    //   await _ttsService.speakRfidCode(rfidCode, _isFrench);
-    // }
-
     if (user != null) {
       // Save the record in the database
       print("The user is found");
@@ -87,11 +83,11 @@ void _showRfidDialog(String name, String? imageUrl) {
   );
 
     // Automatically close the dialog after 2 seconds
-    Future.delayed(const Duration(seconds: 3), () {
-      if (mounted && Navigator.canPop(context)) {
-        Navigator.of(context).pop();
-      }
-    });
+    // Future.delayed(const Duration(seconds: 3), () {
+    //   if (mounted && Navigator.canPop(context)) {
+    //     Navigator.of(context).pop();
+    //   }
+    // });
   }
 
   @override
